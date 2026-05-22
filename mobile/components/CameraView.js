@@ -189,37 +189,6 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     </Animated.View>
                 )}
 
-                {/* Floating zoom presets inside the viewfinder area, bottom-aligned at a safe distance */}
-                {!isScanning && (
-                    <View style={styles.zoomContainer}>
-                        {[
-                            { label: '1x', value: 0.0 },
-                            { label: '2x', value: 0.08 },
-                            { label: '3x', value: 0.18 }
-                        ].map((preset) => {
-                            const isActive = Math.abs(zoom - preset.value) < 0.02;
-                            return (
-                                <TouchableOpacity
-                                    key={preset.label}
-                                    style={[
-                                        styles.zoomPill,
-                                        isActive && styles.zoomPillActive
-                                    ]}
-                                    onPress={() => setZoom(preset.value)}
-                                    activeOpacity={0.7}
-                                >
-                                    <Text style={[
-                                        styles.zoomText,
-                                        isActive && styles.zoomTextActive
-                                    ]}>
-                                        {preset.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
-                )}
-
                 {/* Barcode scanner box is now directly inside the viewfinder area, centered! */}
                 {isScanning && (
                     <View style={styles.scannerOverlay}>
@@ -233,6 +202,40 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     </View>
                 )}
             </Pressable>
+
+            {/* Floating zoom presets outside the Pressable (to prevent touch capture conflicts) but overlaying the bottom edge of viewfinder */}
+            {!isScanning && (
+                <View style={styles.zoomContainer}>
+                    {[
+                        { label: '1x', value: 0.0 },
+                        { label: '2x', value: 0.08 },
+                        { label: '3x', value: 0.18 }
+                    ].map((preset) => {
+                        const isActive = Math.abs(zoom - preset.value) < 0.02;
+                        return (
+                            <TouchableOpacity
+                                key={preset.label}
+                                style={[
+                                    styles.zoomPill,
+                                    isActive && styles.zoomPillActive
+                                ]}
+                                onPress={() => {
+                                    console.log("CameraView: Zoom preset selected:", preset.label, "value:", preset.value);
+                                    setZoom(preset.value);
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[
+                                    styles.zoomText,
+                                    isActive && styles.zoomTextActive
+                                ]}>
+                                    {preset.label}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            )}
 
             {/* Solid Shutter Bar at the bottom containing all controls */}
             <View style={styles.shutterBar}>
@@ -470,7 +473,7 @@ const styles = StyleSheet.create({
     },
     zoomContainer: {
         position: 'absolute',
-        bottom: 20, // Clean floating position above the shutter bar
+        bottom: 160, // Clean floating position above the 140px shutter bar
         alignSelf: 'center',
         flexDirection: 'row',
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
