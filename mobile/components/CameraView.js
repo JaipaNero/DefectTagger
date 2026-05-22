@@ -19,6 +19,10 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     const [focusIndicator, setFocusIndicator] = useState({ x: 0, y: 0, visible: false });
     const focusAnim = useRef(new Animated.Value(0)).current;
 
+    const initialPinchDistance = useRef(0);
+    const initialZoom = useRef(0);
+    const wasPinching = useRef(false);
+
     useEffect(() => {
         // Request permission on mount if not already handled
         if (!permission) {
@@ -72,7 +76,49 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         }
     };
 
+    const getTouchDistance = (touches) => {
+        const [t1, t2] = touches;
+        const dx = t2.pageX - t1.pageX;
+        const dy = t2.pageY - t1.pageY;
+        return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const handleTouchStart = (event) => {
+        const { touches } = event.nativeEvent;
+        if (touches.length === 1) {
+            wasPinching.current = false;
+        } else if (touches.length === 2) {
+            wasPinching.current = true;
+            const distance = getTouchDistance(touches);
+            initialPinchDistance.current = distance;
+            initialZoom.current = zoom;
+        }
+    };
+
+    const handleTouchMove = (event) => {
+        const { touches } = event.nativeEvent;
+        if (touches.length === 2 && initialPinchDistance.current > 0) {
+            wasPinching.current = true;
+            const distance = getTouchDistance(touches);
+            // 400 pixels of finger spread corresponds to zooming from 0.0 to 1.0
+            const scaleChange = (distance - initialPinchDistance.current) / 400;
+            let newZoom = initialZoom.current + scaleChange;
+            newZoom = Math.max(0.0, Math.min(1.0, newZoom));
+            setZoom(parseFloat(newZoom.toFixed(3)));
+        }
+    };
+
+    const handleTouchEnd = () => {
+        initialPinchDistance.current = 0;
+        setTimeout(() => {
+            wasPinching.current = false;
+        }, 150);
+    };
+
     const handleTapToFocus = (event) => {
+        if (wasPinching.current) {
+            return;
+        }
         const { locationX, locationY } = event.nativeEvent;
         
         // Show visual indicator
@@ -96,7 +142,14 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
 
     return (
         <View style={styles.container}>
-            <Pressable style={styles.cameraContainer} onPress={handleTapToFocus}>
+            <Pressable 
+                style={styles.cameraContainer} 
+                onPress={handleTapToFocus}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
+            >
                 <CameraView
                     style={styles.camera}
                     facing="back"
@@ -141,10 +194,10 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                 <View style={styles.zoomContainer}>
                     {[
                         { label: '1x', value: 0.0 },
-                        { label: '2x', value: 0.3 },
-                        { label: '3x', value: 0.6 }
+                        { label: '2x', value: 0.08 },
+                        { label: '3x', value: 0.18 }
                     ].map((preset) => {
-                        const isActive = zoom === preset.value;
+                        const isActive = Math.abs(zoom - preset.value) < 0.02;
                         return (
                             <TouchableOpacity
                                 key={preset.label}
