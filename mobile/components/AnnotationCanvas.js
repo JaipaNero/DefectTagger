@@ -74,6 +74,7 @@ export default function AnnotationCanvas({ imageUri, onSave, onCancel, showAlert
         'Black Spot',
         'Display Line',
         'Burn-in / Ghosting',
+        'Microwave Burn',
         'Peeling / Pitting',
         '3rd Party Repair',
         'Missing Part/Screw',

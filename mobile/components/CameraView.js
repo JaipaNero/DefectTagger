@@ -15,6 +15,7 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     const [isReady, setIsReady] = useState(false);
     const [autoFocus, setAutoFocus] = useState('on');
     const [torchEnabled, setTorchEnabled] = useState(false);
+    const [zoom, setZoom] = useState(0.0);
     const [focusIndicator, setFocusIndicator] = useState({ x: 0, y: 0, visible: false });
     const focusAnim = useRef(new Animated.Value(0)).current;
 
@@ -103,6 +104,7 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     autoFocus={autoFocus}
                     autofocus={autoFocus}
                     enableTorch={torchEnabled}
+                    zoom={zoom}
                     onCameraReady={() => setIsReady(true)}
                     onBarcodeScanned={(event) => {
                         if (isScanning && isReady) {
@@ -134,6 +136,37 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     </Animated.View>
                 )}
             </Pressable>
+
+            {!isScanning && (
+                <View style={styles.zoomContainer}>
+                    {[
+                        { label: '1x', value: 0.0 },
+                        { label: '2x', value: 0.3 },
+                        { label: '3x', value: 0.6 }
+                    ].map((preset) => {
+                        const isActive = zoom === preset.value;
+                        return (
+                            <TouchableOpacity
+                                key={preset.label}
+                                style={[
+                                    styles.zoomPill,
+                                    isActive && styles.zoomPillActive
+                                ]}
+                                onPress={() => setZoom(preset.value)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[
+                                    styles.zoomText,
+                                    isActive && styles.zoomTextActive
+                                ]}>
+                                    {preset.label}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            )}
+
             <View style={styles.buttonContainer}>
                 {!isScanning && (
                     <View style={styles.bottomControlsRow}>
@@ -307,5 +340,48 @@ const styles = StyleSheet.create({
         borderColor: '#00FF00',
         backgroundColor: 'transparent',
         borderRadius: 16,
+    },
+    zoomContainer: {
+        position: 'absolute',
+        bottom: 120,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        backgroundColor: 'rgba(0, 0, 0, 0.55)',
+        borderRadius: 24,
+        padding: 5,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 5,
+        elevation: 6,
+        zIndex: 50,
+    },
+    zoomPill: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'transparent',
+    },
+    zoomPillActive: {
+        backgroundColor: '#6366f1',
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.4,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    zoomText: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    zoomTextActive: {
+        color: 'white',
+        fontWeight: 'bold',
     }
 });
