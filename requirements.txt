@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+qrcode[pil]
+requests
+pyjwt
+filetype
+cryptography
+firebase-admin
+watchdog
+tzdata

@@ -1,0 +1,15 @@
+# General
+node_modules/
+.expo/
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+*.jks
+local.properties
+
+# iOS
+ios/build/
+ios/Pods/
+ios/*.xcworkspace
