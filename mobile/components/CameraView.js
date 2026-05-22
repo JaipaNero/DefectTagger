@@ -188,40 +188,55 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                         <View style={styles.focusRect} />
                     </Animated.View>
                 )}
+
+                {/* Floating zoom presets inside the viewfinder area, bottom-aligned at a safe distance */}
+                {!isScanning && (
+                    <View style={styles.zoomContainer}>
+                        {[
+                            { label: '1x', value: 0.0 },
+                            { label: '2x', value: 0.08 },
+                            { label: '3x', value: 0.18 }
+                        ].map((preset) => {
+                            const isActive = Math.abs(zoom - preset.value) < 0.02;
+                            return (
+                                <TouchableOpacity
+                                    key={preset.label}
+                                    style={[
+                                        styles.zoomPill,
+                                        isActive && styles.zoomPillActive
+                                    ]}
+                                    onPress={() => setZoom(preset.value)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[
+                                        styles.zoomText,
+                                        isActive && styles.zoomTextActive
+                                    ]}>
+                                        {preset.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+
+                {/* Barcode scanner box is now directly inside the viewfinder area, centered! */}
+                {isScanning && (
+                    <View style={styles.scannerOverlay}>
+                        <Text style={styles.scannerText}>
+                            {scannerMode === 'qr' ? 'Scan Server QR Code' : 'Scan IMEI / SN Barcode'}
+                        </Text>
+                        <View style={[
+                            styles.scannerFrame,
+                            scannerMode === 'barcode' && styles.barcodeScannerFrame
+                        ]} />
+                    </View>
+                )}
             </Pressable>
 
-            {!isScanning && (
-                <View style={styles.zoomContainer}>
-                    {[
-                        { label: '1x', value: 0.0 },
-                        { label: '2x', value: 0.08 },
-                        { label: '3x', value: 0.18 }
-                    ].map((preset) => {
-                        const isActive = Math.abs(zoom - preset.value) < 0.02;
-                        return (
-                            <TouchableOpacity
-                                key={preset.label}
-                                style={[
-                                    styles.zoomPill,
-                                    isActive && styles.zoomPillActive
-                                ]}
-                                onPress={() => setZoom(preset.value)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={[
-                                    styles.zoomText,
-                                    isActive && styles.zoomTextActive
-                                ]}>
-                                    {preset.label}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-            )}
-
-            <View style={styles.buttonContainer}>
-                {!isScanning && (
+            {/* Solid Shutter Bar at the bottom containing all controls */}
+            <View style={styles.shutterBar}>
+                {!isScanning ? (
                     <View style={styles.bottomControlsRow}>
                         {/* Flashlight/Torch Toggle Button */}
                         <TouchableOpacity 
@@ -236,9 +251,14 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                             />
                         </TouchableOpacity>
 
-                        {/* Capture Button */}
-                        <TouchableOpacity style={styles.captureButton} onPress={takePicture} disabled={!isReady}>
-                            <View style={styles.innerCircle} />
+                        {/* Capture Button (Samsung Camera Style: Outer Ring + Solid Circle) */}
+                        <TouchableOpacity 
+                            style={styles.captureButtonOuter} 
+                            onPress={takePicture} 
+                            disabled={!isReady}
+                            activeOpacity={0.8}
+                        >
+                            <View style={styles.captureButtonInner} />
                         </TouchableOpacity>
 
                         {/* Scan Barcode Toggle Button */}
@@ -254,16 +274,43 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                             />
                         </TouchableOpacity>
                     </View>
-                )}
-                {isScanning && (
-                    <View style={styles.scannerOverlay}>
-                        <Text style={styles.scannerText}>
-                            {scannerMode === 'qr' ? 'Scan Server QR Code' : 'Scan IMEI / SN Barcode'}
-                        </Text>
-                        <View style={[
-                            styles.scannerFrame,
-                            scannerMode === 'barcode' && styles.barcodeScannerFrame
-                        ]} />
+                ) : (
+                    <View style={styles.bottomControlsRow}>
+                        {/* Flashlight/Torch Toggle Button (Crucial for scanner in dark rooms) */}
+                        <TouchableOpacity 
+                            style={styles.sideButton} 
+                            onPress={() => setTorchEnabled(!torchEnabled)}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons 
+                                name={torchEnabled ? "flash" : "flash-off"} 
+                                size={24} 
+                                color={torchEnabled ? "#FFCC00" : "white"} 
+                            />
+                        </TouchableOpacity>
+
+                        {/* Cancel Scan Button */}
+                        <TouchableOpacity 
+                            style={styles.cancelScanButton} 
+                            onPress={onToggleBarcodeScan}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons 
+                                name="close-circle" 
+                                size={20} 
+                                color="white" 
+                            />
+                            <Text style={styles.cancelScanText}>Cancel</Text>
+                        </TouchableOpacity>
+
+                        {/* Scanner Mode Indicator */}
+                        <View style={styles.sideButtonDisabled}>
+                            <Ionicons 
+                                name={scannerMode === 'qr' ? "qr-code-outline" : "barcode-outline"} 
+                                size={24} 
+                                color="rgba(255, 255, 255, 0.4)" 
+                            />
+                        </View>
                     </View>
                 )}
             </View>
@@ -274,62 +321,87 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        justifyContent: 'center',
+        backgroundColor: '#000000',
         width: '100%',
         height: '100%',
     },
     message: {
         textAlign: 'center',
         paddingBottom: 10,
+        color: '#ffffff',
     },
     camera: {
         ...StyleSheet.absoluteFillObject,
     },
-    buttonContainer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginBottom: 40,
-    },
-    captureButton: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
-        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    shutterBar: {
+        backgroundColor: '#000000',
+        height: 140,
+        width: '100%',
         justifyContent: 'center',
         alignItems: 'center',
-        borderColor: 'white',
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255, 255, 255, 0.05)',
+        paddingBottom: 10, // Accounts for bottom home indicator/safe area on modern devices
+    },
+    captureButtonOuter: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        borderWidth: 5,
+        borderColor: '#FFFFFF',
+        backgroundColor: 'transparent',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    captureButtonInner: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#FFFFFF',
+    },
+    cancelScanButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#E53935', // Premium dark red cancel button
+        paddingVertical: 10,
+        paddingHorizontal: 22,
+        borderRadius: 22,
+        gap: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    cancelScanText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: 'bold',
     },
     scannerOverlay: {
+        ...StyleSheet.absoluteFillObject,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 100,
+        backgroundColor: 'transparent',
     },
     scannerText: {
         color: 'white',
-        fontSize: 18,
+        fontSize: 16,
         marginBottom: 20,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: 'rgba(0,0,0,0.65)',
         paddingHorizontal: 20,
         paddingVertical: 10,
         borderRadius: 26,
+        fontWeight: '600',
+        overflow: 'hidden',
     },
     scannerFrame: {
-        width: 250,
-        height: 250,
+        width: 240,
+        height: 240,
         borderWidth: 2,
-        borderColor: '#00FF00', // Green frame
+        borderColor: '#00FF00', // Neon green target box
         backgroundColor: 'transparent',
-        borderRadius: 26,
-    },
-    innerCircle: {
-        width: 54,
-        height: 54,
-        borderRadius: 27,
-        backgroundColor: 'white',
+        borderRadius: 24,
     },
     permissionButton: {
         backgroundColor: '#6366f1',
@@ -347,6 +419,7 @@ const styles = StyleSheet.create({
     cameraContainer: {
         flex: 1,
         backgroundColor: 'black',
+        position: 'relative',
     },
     focusRing: {
         position: 'absolute',
@@ -359,10 +432,10 @@ const styles = StyleSheet.create({
     focusRect: {
         width: 60,
         height: 60,
-        borderWidth: 1,
+        borderWidth: 1.5,
         borderColor: '#00FF00',
-        borderRadius: 4,
-        backgroundColor: 'rgba(0, 255, 0, 0.05)',
+        borderRadius: 8,
+        backgroundColor: 'rgba(0, 255, 0, 0.03)',
     },
     bottomControlsRow: {
         flexDirection: 'row',
@@ -372,19 +445,20 @@ const styles = StyleSheet.create({
         paddingHorizontal: 30,
     },
     sideButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)', // Premium translucent white circle
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
-        elevation: 3,
+    },
+    sideButtonDisabled: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     barcodeScannerFrame: {
         width: 300,
@@ -396,45 +470,45 @@ const styles = StyleSheet.create({
     },
     zoomContainer: {
         position: 'absolute',
-        bottom: 110,
+        bottom: 20, // Clean floating position above the shutter bar
         alignSelf: 'center',
         flexDirection: 'row',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        borderRadius: 20,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        borderRadius: 24,
         padding: 4,
-        gap: 6,
+        gap: 8,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        borderColor: 'rgba(255, 255, 255, 0.12)',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 5,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 5,
+        elevation: 6,
         zIndex: 50,
     },
     zoomPill: {
-        width: 34,
-        height: 34,
-        borderRadius: 17,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         justifyContent: 'center',
         alignItems: 'center',
         backgroundColor: 'transparent',
     },
     zoomPillActive: {
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backgroundColor: '#FFFFFF', // Solid white active selection
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 2,
-        elevation: 2,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+        elevation: 3,
     },
     zoomText: {
         color: 'rgba(255, 255, 255, 0.85)',
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: 'bold',
     },
     zoomTextActive: {
-        color: '#111111',
+        color: '#000000', // High-contrast text on white circle
         fontWeight: 'bold',
     }
 });

@@ -241,7 +241,7 @@ export default function App() {
                             onBarcodeScanned={view === 'scanner' ? handleBarcodeScanned : handleImeiScanned}
                             isScanning={view === 'scanner' || view === 'barcode'}
                             scannerMode={view === 'scanner' ? 'qr' : (view === 'barcode' ? 'barcode' : null)}
-                            onToggleBarcodeScan={() => setView(view === 'barcode' ? 'camera' : 'barcode')}
+                            onToggleBarcodeScan={() => setView(view !== 'camera' ? 'camera' : 'barcode')}
                         />
 
                         {(view === 'camera' || view === 'scanner' || view === 'barcode') && (
