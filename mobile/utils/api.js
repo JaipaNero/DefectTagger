@@ -4,13 +4,33 @@ import * as db from './database';  // ARCH-01: Single Source of Truth for offlin
 
 const AUTH_TOKEN_KEY = 'auth_token';
 
+// Generic fetch wrapper with automatic HTTP fallback to bypass local self-signed SSL handshake failures
+const robustFetch = async (url, options = {}) => {
+    try {
+        const response = await fetch(url, options);
+        return response;
+    } catch (e) {
+        if (url.startsWith('https://')) {
+            const httpUrl = url.replace('https://', 'http://');
+            console.log(`robustFetch: HTTPS failed (${e.message}). Falling back to HTTP: ${httpUrl}`);
+            try {
+                return await fetch(httpUrl, options);
+            } catch (httpError) {
+                console.error(`robustFetch: HTTP fallback failed: ${httpError.message}`);
+                throw httpError;
+            }
+        }
+        throw e;
+    }
+};
+
 /**
  * Performs the initial handshake with the backend.
  * Exchanges the QR setup token for a session JWT via JSON body.
  */
 export const handshake = async (ipAddress, setupToken, technicianId) => {
     try {
-        const response = await fetch(`https://${ipAddress}:8000/auth/handshake`, {
+        const response = await robustFetch(`https://${ipAddress}:8000/auth/handshake`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -45,7 +65,7 @@ export const verifySession = async (ipAddress) => {
         const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
         if (!token) return { success: false, error: "No token." };
 
-        const response = await fetch(`https://${ipAddress}:8000/auth/verify`, {
+        const response = await robustFetch(`https://${ipAddress}:8000/auth/verify`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -100,7 +120,7 @@ export const uploadEvidence = async (imageUri, metadata, ipAddress, skipQueue = 
         console.log(`SyncService: Image URI: ${osUri}`);
         console.log(`SyncService: Metadata: ${JSON.stringify(metadata)}`);
 
-        const fetchPromise = fetch(apiUrl, {
+        const fetchPromise = robustFetch(apiUrl, {
             method: 'POST',
             body: formData,
             headers: {
@@ -215,7 +235,7 @@ export const discoverServer = async (onProgress) => {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 1500);
                     try {
-                        const res = await fetch(`https://${targetIp}:${port}/`, {
+                        const res = await robustFetch(`https://${targetIp}:${port}/`, {
                             method: 'GET',
                             signal: controller.signal
                         });
@@ -260,7 +280,7 @@ export const requestPairing = async (ipAddress) => {
             await SecureStore.setItemAsync('device_uuid', deviceId);
         }
 
-        const response = await fetch(`https://${ipAddress}:8000/auth/pair-request`, {
+        const response = await robustFetch(`https://${ipAddress}:8000/auth/pair-request`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -282,7 +302,7 @@ export const requestPairing = async (ipAddress) => {
  */
 export const pollPairingStatus = async (ipAddress, requestId) => {
     try {
-        const response = await fetch(`https://${ipAddress}:8000/auth/pair-status?request_id=${requestId}`);
+        const response = await robustFetch(`https://${ipAddress}:8000/auth/pair-status?request_id=${requestId}`);
         if (!response.ok) {
             if (response.status === 403) return { status: 'denied' };
             throw new Error("Polling failed");
@@ -305,7 +325,7 @@ export const sendToClipboard = async (text, ipAddress) => {
             return { success: false, error: "Authentication missing. Please rescan QR or re-pair." };
         }
 
-        const response = await fetch(`https://${ipAddress}:8000/clipboard`, {
+        const response = await robustFetch(`https://${ipAddress}:8000/clipboard`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
