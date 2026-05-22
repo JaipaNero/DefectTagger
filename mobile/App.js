@@ -251,10 +251,13 @@ export default function App() {
                                     else setSettingsVisible(true);
                                 }}>
                                     <View style={styles.settingsBlur}>
-                                        <Text style={styles.settingsText}>{(view === 'scanner' || view === 'barcode') ? '❌' : '⚙️'}</Text>
+                                        <MaterialCommunityIcons 
+                                            name={(view === 'scanner' || view === 'barcode') ? 'close' : 'cog'} 
+                                            size={22} 
+                                            color="white" 
+                                        />
                                     </View>
                                 </ScaleButton>
-
 
                                 {queueLength > 0 && (
                                     <ScaleButton style={styles.queueButtonContainer} onPress={() => {
@@ -265,6 +268,12 @@ export default function App() {
                                         ]);
                                     }}>
                                         <View style={styles.queueBlur}>
+                                            <MaterialCommunityIcons 
+                                                name="cloud-sync" 
+                                                size={18} 
+                                                color="#ffa500" 
+                                                style={{ marginRight: 6 }} 
+                                            />
                                             <Text style={styles.queueText}>
                                                 {queueLength} Cached
                                             </Text>
@@ -454,27 +463,57 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: 60,
         right: 25,
-        borderRadius: 26,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        backgroundColor: '#252525',
-        elevation: 8,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 3,
     },
-    settingsBlur: { padding: 12 },
-    settingsText: { fontSize: 24 },
+    settingsBlur: {
+        width: '100%',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     queueButtonContainer: {
         position: 'absolute',
         top: 60,
         left: 25,
-        borderRadius: 26,
+        height: 44,
+        borderRadius: 22,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255,165,0,0.3)',
-        backgroundColor: '#2C2C2E',
+        borderColor: 'rgba(255, 165, 0, 0.25)',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 3,
     },
-    queueBlur: { paddingVertical: 12, paddingHorizontal: 16 },
-    queueText: { color: '#ffa500', fontWeight: 'bold' },
+    queueBlur: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        height: '100%',
+    },
+    queueText: { 
+        color: '#ffa500', 
+        fontWeight: '700',
+        fontSize: 13,
+    },
     modalOverlay: {
         flex: 1,
         justifyContent: 'center',
