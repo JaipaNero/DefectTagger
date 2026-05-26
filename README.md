@@ -48,6 +48,54 @@ The application stores your preferences (like the storage path) in a secure, OS-
 - **macOS Config**: `~/Library/Application Support/Defect Tagger/config.json`
 - **Windows Config**: `%APPDATA%\Defect Tagger\config.json`
 
+## 🚀 Release & Versioning Workflow
+
+The backend hub (Windows EXE) and mobile app (Android APK) can be versioned independently.
+
+### Why This Matters
+- If you only change backend code, you should not be forced to bump mobile app version metadata.
+- If you only change mobile code, you should not be forced to create a new EXE version.
+
+### Version Tracks
+- **Hub version (EXE track)**: Used for release artifact naming, e.g. `LocalSyncHub-v2.2.0.exe`.
+- **Mobile version (APK track)**: Controlled in `mobile/app.json` (`expo.version`, `android.versionCode`) and `mobile/package.json` (`version`).
+
+### Build Commands (Windows)
+- EXE only:
+
+    ```powershell
+    powershell -ExecutionPolicy Bypass -File .\build_localsynchub.ps1 -Version 2.2.0
+    ```
+
+- EXE + trigger APK cloud build:
+
+    ```powershell
+    powershell -ExecutionPolicy Bypass -File .\build_localsynchub.ps1 -Version 2.2.0 -BuildApk
+    ```
+
+### Recommended Release Scenarios
+1. **Backend-only update (EXE only)**
+     - Bump only EXE release value passed to `-Version`.
+     - Do not change mobile version fields.
+
+2. **Mobile-only update (APK only)**
+     - Update `mobile/app.json`:
+         - `expo.version` (e.g. `2.2.1`)
+         - `android.versionCode` (must increase each Android release)
+     - Update `mobile/package.json` version.
+     - Run APK build from `mobile/`:
+
+    ```powershell
+    npx eas build -p android --profile preview
+    ```
+
+3. **Combined update (EXE + APK)**
+     - Bump both version tracks intentionally.
+     - Build both artifacts.
+
+### Current Manual Version
+- Manual release version noted by team: `2.2`
+
 ## 🛠 Functionality
 
 - **Express Annotations**: Intuitive rectangle drawing tool for marking damage in seconds.
