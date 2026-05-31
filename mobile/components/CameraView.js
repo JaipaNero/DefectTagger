@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Dimensions, Linking, ActivityIndicator, Pressable, Animated } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Dimensions, Linking, ActivityIndicator, Pressable, Animated, AppState } from 'react-native';
 import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -15,6 +15,9 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     const [zoom, setZoom] = useState(1.0);
     const [focusIndicator, setFocusIndicator] = useState({ x: 0, y: 0, visible: false });
     const focusAnim = useRef(new Animated.Value(0)).current;
+
+    const [appState, setAppState] = useState(AppState.currentState);
+    const [fallbackDevice, setFallbackDevice] = useState(null);
 
     const initialPinchDistance = useRef(0);
     const initialZoom = useRef(1.0);
@@ -39,6 +42,16 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         checkPermission();
     }, []);
 
+    // 2. AppState Monitoring
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            setAppState(nextAppState);
+        });
+        return () => {
+            subscription.remove();
+        };
+    }, []);
+
     const handleRequestPermission = async () => {
         console.log("CameraView: Requesting camera permission");
         try {
@@ -52,8 +65,52 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         }
     };
 
-    // 2. Camera Device Selection
-    const device = useCameraDevice('back');
+    // 3. Camera Device Selection
+    const hookDevice = useCameraDevice('back');
+
+    useEffect(() => {
+        if (hookDevice) {
+            setFallbackDevice(hookDevice);
+            return;
+        }
+
+        let isMounted = true;
+        let attempt = 0;
+        const maxAttempts = 5;
+        const delay = 1000;
+
+        const fetchDevices = async () => {
+            if (!isMounted) return;
+            try {
+                console.log(`CameraView: hookDevice is undefined, manually querying devices (attempt ${attempt + 1}/${maxAttempts})...`);
+                const availableDevices = await Camera.getAvailableCameraDevices();
+                const backDevice = availableDevices.find(d => d.position === 'back');
+                if (backDevice) {
+                    console.log("CameraView: Successfully found back camera device via manual query!");
+                    if (isMounted) {
+                        setFallbackDevice(backDevice);
+                    }
+                    return;
+                }
+            } catch (error) {
+                console.error("CameraView: Failed manual query for devices", error);
+            }
+
+            attempt++;
+            if (attempt < maxAttempts && isMounted) {
+                setTimeout(fetchDevices, delay);
+            }
+        };
+
+        const timer = setTimeout(fetchDevices, 500);
+
+        return () => {
+            isMounted = false;
+            clearTimeout(timer);
+        };
+    }, [hookDevice, permissionStatus, appState]);
+
+    const device = fallbackDevice || hookDevice;
 
     useEffect(() => {
         if (device) {
@@ -205,7 +262,7 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                 <Camera
                     style={styles.camera}
                     device={device}
-                    isActive={true}
+                    isActive={appState === 'active'}
                     ref={cameraRef}
                     photo={true}
                     torch={torchEnabled ? 'on' : 'off'}
