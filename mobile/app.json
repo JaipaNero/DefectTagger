@@ -27,7 +27,6 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.defect.tagger",
-      "usesCleartextTraffic": true,
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
@@ -69,7 +68,8 @@
           ]
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-font"
     ],
     "extra": {
       "eas": {
