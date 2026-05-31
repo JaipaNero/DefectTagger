@@ -1,72 +1,59 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Dimensions, Linking, ActivityIndicator, Pressable, Animated, AppState } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Linking, ActivityIndicator, Pressable, Animated, AppState } from 'react-native';
 import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
- * CameraView Component
- * Handles camera permissions, image capture, zoom presets, pinch-to-zoom, and QR/barcode scanning.
+ * 1. Self-Contained Custom Hook: useCameraPermissions
+ * Handles querying, requesting, and updating the camera permission state cleanly.
  */
-export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning = false, scannerMode = 'qr', onToggleBarcodeScan }) {
+export function useCameraPermissions() {
     const [permissionStatus, setPermissionStatus] = useState('loading');
-    const cameraRef = useRef(null);
-    const [isReady, setIsReady] = useState(false);
-    const [torchEnabled, setTorchEnabled] = useState(false);
-    const [zoom, setZoom] = useState(1.0);
-    const [focusIndicator, setFocusIndicator] = useState({ x: 0, y: 0, visible: false });
-    const focusAnim = useRef(new Animated.Value(0)).current;
 
-    const [appState, setAppState] = useState(AppState.currentState);
-    const [fallbackDevice, setFallbackDevice] = useState(null);
-
-    const initialPinchDistance = useRef(0);
-    const initialZoom = useRef(1.0);
-    const wasPinching = useRef(false);
-
-    // 1. Permission Handling
     useEffect(() => {
-        const checkPermission = async () => {
+        let isMounted = true;
+        const checkAndRequest = async () => {
             try {
-                const status = Camera.getCameraPermissionStatus();
-                setPermissionStatus(status);
-                
-                if (status === 'not-determined') {
-                    const requested = await Camera.requestCameraPermission();
-                    setPermissionStatus(requested);
+                const currentStatus = Camera.getCameraPermissionStatus();
+                if (isMounted) setPermissionStatus(currentStatus);
+
+                if (currentStatus === 'not-determined') {
+                    const nextStatus = await Camera.requestCameraPermission();
+                    if (isMounted) setPermissionStatus(nextStatus);
                 }
             } catch (error) {
-                console.error("CameraView: Permission check failed", error);
-                setPermissionStatus('denied');
+                console.error("useCameraPermissions: Check failed:", error);
+                if (isMounted) setPermissionStatus('denied');
             }
         };
-        checkPermission();
+        checkAndRequest();
+        return () => { isMounted = false; };
     }, []);
 
-    // 2. AppState Monitoring
-    useEffect(() => {
-        const subscription = AppState.addEventListener('change', (nextAppState) => {
-            setAppState(nextAppState);
-        });
-        return () => {
-            subscription.remove();
-        };
-    }, []);
-
-    const handleRequestPermission = async () => {
-        console.log("CameraView: Requesting camera permission");
+    const requestPermission = async () => {
         try {
-            const status = await Camera.requestCameraPermission();
-            setPermissionStatus(status);
-            if (status === 'denied') {
+            const nextStatus = await Camera.requestCameraPermission();
+            setPermissionStatus(nextStatus);
+            if (nextStatus === 'denied') {
                 Linking.openSettings();
             }
         } catch (error) {
-            console.error("CameraView: Permission request failed", error);
+            console.error("useCameraPermissions: Request failed:", error);
         }
     };
 
-    // 3. Camera Device Selection
+    return { permissionStatus, requestPermission };
+}
+
+/**
+ * 2. Self-Contained Custom Hook: useCameraDeviceFallback
+ * Manages the camera hardware query. If standard useCameraDevice returns undefined
+ * (due to native lag, dynamic updates, or locked hardware), it falls back to
+ * querying getAvailableCameraDevices in a robust retry loop.
+ */
+export function useCameraDeviceFallback(appState, permissionStatus) {
     const hookDevice = useCameraDevice('back');
+    const [fallbackDevice, setFallbackDevice] = useState(null);
 
     useEffect(() => {
         if (hookDevice) {
@@ -82,18 +69,16 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         const fetchDevices = async () => {
             if (!isMounted) return;
             try {
-                console.log(`CameraView: hookDevice is undefined, manually querying devices (attempt ${attempt + 1}/${maxAttempts})...`);
+                console.log(`useCameraDeviceFallback: Retrying hardware selection (attempt ${attempt + 1}/${maxAttempts})...`);
                 const availableDevices = await Camera.getAvailableCameraDevices();
                 const backDevice = availableDevices.find(d => d.position === 'back');
                 if (backDevice) {
-                    console.log("CameraView: Successfully found back camera device via manual query!");
-                    if (isMounted) {
-                        setFallbackDevice(backDevice);
-                    }
+                    console.log("useCameraDeviceFallback: Successfully established back device via manual query!");
+                    if (isMounted) setFallbackDevice(backDevice);
                     return;
                 }
             } catch (error) {
-                console.error("CameraView: Failed manual query for devices", error);
+                console.error("useCameraDeviceFallback: Error retrieving available devices:", error);
             }
 
             attempt++;
@@ -110,8 +95,39 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         };
     }, [hookDevice, permissionStatus, appState]);
 
-    const device = fallbackDevice || hookDevice;
+    return fallbackDevice || hookDevice;
+}
 
+/**
+ * 3. Main Modular CameraScreen Component
+ * Ready for a beginner to run immediately, self-contained, and structurally organized.
+ */
+export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning = false, scannerMode = 'qr', onToggleBarcodeScan }) {
+    // Modular lifecycle & session hooks
+    const { permissionStatus, requestPermission } = useCameraPermissions();
+    const [appState, setAppState] = useState(AppState.currentState);
+    const device = useCameraDeviceFallback(appState, permissionStatus);
+    
+    const cameraRef = useRef(null);
+    const [isReady, setIsReady] = useState(false);
+    const [torchEnabled, setTorchEnabled] = useState(false);
+    const [zoom, setZoom] = useState(1.0);
+    const [focusIndicator, setFocusIndicator] = useState({ x: 0, y: 0, visible: false });
+    const focusAnim = useRef(new Animated.Value(0)).current;
+
+    const initialPinchDistance = useRef(0);
+    const initialZoom = useRef(1.0);
+    const wasPinching = useRef(false);
+
+    // Sync AppState (Foreground vs. Background transitions)
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            setAppState(nextAppState);
+        });
+        return () => subscription.remove();
+    }, []);
+
+    // Sync zoom boundaries when camera device hardware is verified
     useEffect(() => {
         if (device) {
             setZoom(device.minZoom);
@@ -119,24 +135,90 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
         }
     }, [device]);
 
-    // 3. QR/Barcode Scanner
+    // QR & Barcode Scanner setup
     const codeScanner = useCodeScanner({
         codeTypes: scannerMode === 'qr' ? ['qr'] : ['qr', 'code-128', 'code-39', 'ean-13', 'upc-a', 'pdf-417'],
         onCodeScanned: (codes) => {
             if (isScanning && codes.length > 0 && isReady) {
-                const code = codes[0];
-                console.log("CameraView: Barcode detected:", code.value);
-                // Standardize callback payload to match expo-camera format
-                onBarcodeScanned({ data: code.value, type: code.type });
+                onBarcodeScanned({ data: codes[0].value, type: codes[0].type });
             }
         }
     });
 
+    // Capture photo helper
+    const takePicture = async () => {
+        if (cameraRef.current && isReady) {
+            try {
+                const photo = await cameraRef.current.takePhoto({ enableShutterSound: true });
+                const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
+                if (onCapture) onCapture(uri);
+            } catch (error) {
+                console.error("CameraView: capture failed", error);
+            }
+        }
+    };
+
+    // Pinch-to-zoom calculations
+    const getTouchDistance = (touches) => {
+        const [t1, t2] = touches;
+        return Math.sqrt(Math.pow(t2.pageX - t1.pageX, 2) + Math.pow(t2.pageY - t1.pageY, 2));
+    };
+
+    const handleTouchStart = (event) => {
+        const { touches } = event.nativeEvent;
+        if (touches.length === 2) {
+            wasPinching.current = true;
+            initialPinchDistance.current = getTouchDistance(touches);
+            initialZoom.current = zoom;
+        } else {
+            wasPinching.current = false;
+        }
+    };
+
+    const handleTouchMove = (event) => {
+        const { touches } = event.nativeEvent;
+        if (touches.length === 2 && initialPinchDistance.current > 0 && device) {
+            wasPinching.current = true;
+            const distance = getTouchDistance(touches);
+            const zoomRange = device.maxZoom - device.minZoom;
+            const scaleChange = ((distance - initialPinchDistance.current) / 400) * zoomRange;
+            let newZoom = Math.max(device.minZoom, Math.min(device.maxZoom, initialZoom.current + scaleChange));
+            setZoom(parseFloat(newZoom.toFixed(2)));
+        }
+    };
+
+    const handleTouchEnd = () => {
+        initialPinchDistance.current = 0;
+        setTimeout(() => { wasPinching.current = false; }, 150);
+    };
+
+    // Tap-to-focus helper
+    const handleTapToFocus = async (event) => {
+        if (wasPinching.current) return;
+        const { locationX, locationY } = event.nativeEvent;
+
+        setFocusIndicator({ x: locationX, y: locationY, visible: true });
+        focusAnim.setValue(0);
+        Animated.sequence([
+            Animated.spring(focusAnim, { toValue: 1, useNativeDriver: true }),
+            Animated.timing(focusAnim, { toValue: 0, duration: 500, delay: 500, useNativeDriver: true })
+        ]).start(() => setFocusIndicator(p => ({ ...p, visible: false })));
+
+        if (cameraRef.current) {
+            try {
+                await cameraRef.current.focus({ x: locationX, y: locationY });
+            } catch (error) {
+                console.log("CameraView: Autofocus attempt skipped/failed", error);
+            }
+        }
+    };
+
+    // UI Rendering Logic based on Permission Status
     if (permissionStatus === 'loading') {
         return (
             <View style={styles.container}>
-                <ActivityIndicator size="large" color="#0000ff" />
-                <Text style={styles.message}>Requesting camera permissions...</Text>
+                <ActivityIndicator size="large" color="#6366f1" />
+                <Text style={styles.message}>Checking camera permissions...</Text>
             </View>
         );
     }
@@ -144,11 +226,9 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     if (permissionStatus !== 'granted') {
         return (
             <View style={styles.container}>
-                <Text style={styles.message}>We need your permission to show the camera</Text>
-                <TouchableOpacity
-                    style={styles.permissionButton}
-                    onPress={handleRequestPermission}
-                >
+                <Ionicons name="camera-reverse-outline" size={48} color="rgba(255, 255, 255, 0.4)" style={{ marginBottom: 15 }} />
+                <Text style={styles.message}>We need your permission to access the camera hardware</Text>
+                <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
                     <Text style={styles.permissionButtonText}>Grant Permission</Text>
                 </TouchableOpacity>
             </View>
@@ -158,96 +238,11 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     if (!device) {
         return (
             <View style={styles.container}>
-                <ActivityIndicator size="large" color="#0000ff" />
+                <ActivityIndicator size="large" color="#6366f1" />
                 <Text style={styles.message}>Loading camera hardware...</Text>
             </View>
         );
     }
-
-    // 4. Capture photo
-    const takePicture = async () => {
-        if (cameraRef.current && isReady) {
-            try {
-                const photo = await cameraRef.current.takePhoto({
-                    enableShutterSound: true,
-                });
-                const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
-                console.log("CameraView: Photo captured", uri);
-                onCapture(uri);
-            } catch (error) {
-                console.error("CameraView: Capture failed", error);
-            }
-        }
-    };
-
-    // 5. Touch and Zoom Helpers
-    const getTouchDistance = (touches) => {
-        const [t1, t2] = touches;
-        const dx = t2.pageX - t1.pageX;
-        const dy = t2.pageY - t1.pageY;
-        return Math.sqrt(dx * dx + dy * dy);
-    };
-
-    const handleTouchStart = (event) => {
-        const { touches } = event.nativeEvent;
-        if (touches.length === 1) {
-            wasPinching.current = false;
-        } else if (touches.length === 2) {
-            wasPinching.current = true;
-            const distance = getTouchDistance(touches);
-            initialPinchDistance.current = distance;
-            initialZoom.current = zoom;
-        }
-    };
-
-    const handleTouchMove = (event) => {
-        const { touches } = event.nativeEvent;
-        if (touches.length === 2 && initialPinchDistance.current > 0 && device) {
-            wasPinching.current = true;
-            const distance = getTouchDistance(touches);
-            const minZoom = device.minZoom;
-            const maxZoom = device.maxZoom;
-            const zoomRange = maxZoom - minZoom;
-            // 400 pixels of finger spread corresponds to sweeping across the full hardware range
-            const scaleChange = ((distance - initialPinchDistance.current) / 400) * zoomRange;
-            let newZoom = initialZoom.current + scaleChange;
-            newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-            setZoom(parseFloat(newZoom.toFixed(2)));
-        }
-    };
-
-    const handleTouchEnd = () => {
-        initialPinchDistance.current = 0;
-        setTimeout(() => {
-            wasPinching.current = false;
-        }, 150);
-    };
-
-    const handleTapToFocus = async (event) => {
-        if (wasPinching.current) {
-            return;
-        }
-        const { locationX, locationY } = event.nativeEvent;
-        
-        // Show visual indicator
-        setFocusIndicator({ x: locationX, y: locationY, visible: true });
-        focusAnim.setValue(0);
-        Animated.sequence([
-            Animated.spring(focusAnim, { toValue: 1, useNativeDriver: true }),
-            Animated.timing(focusAnim, { toValue: 0, duration: 500, delay: 500, useNativeDriver: true })
-        ]).start(() => {
-            setFocusIndicator(prev => ({ ...prev, visible: false }));
-        });
-
-        if (cameraRef.current) {
-            try {
-                // native focus using physical focus pixels
-                await cameraRef.current.focus({ x: locationX, y: locationY });
-            } catch (error) {
-                console.log("CameraView: Autofocus attempt skipped/failed", error);
-            }
-        }
-    };
 
     return (
         <View style={styles.container}>
@@ -289,22 +284,18 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     </Animated.View>
                 )}
 
-                {/* Barcode scanner box */}
                 {isScanning && (
                     <View style={styles.scannerOverlay}>
                         <Text style={styles.scannerText}>
                             {scannerMode === 'qr' ? 'Scan Server QR Code' : 'Scan IMEI / SN Barcode'}
                         </Text>
-                        <View style={[
-                            styles.scannerFrame,
-                            scannerMode === 'barcode' && styles.barcodeScannerFrame
-                        ]} />
+                        <View style={[styles.scannerFrame, scannerMode === 'barcode' && styles.barcodeScannerFrame]} />
                     </View>
                 )}
             </Pressable>
 
-            {/* Floating zoom presets - bound to device's hardware limits */}
-            {!isScanning && device && (
+            {/* Floating Zoom Selection Pill */}
+            {!isScanning && (
                 <View style={styles.zoomContainer}>
                     {[
                         { label: '1x', value: device.minZoom },
@@ -315,20 +306,11 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                         return (
                             <TouchableOpacity
                                 key={preset.label}
-                                style={[
-                                    styles.zoomPill,
-                                    isActive && styles.zoomPillActive
-                                ]}
-                                onPress={() => {
-                                    console.log("CameraView: Zoom preset selected:", preset.label, "value:", preset.value);
-                                    setZoom(preset.value);
-                                }}
+                                style={[styles.zoomPill, isActive && styles.zoomPillActive]}
+                                onPress={() => setZoom(preset.value)}
                                 activeOpacity={0.7}
                             >
-                                <Text style={[
-                                    styles.zoomText,
-                                    isActive && styles.zoomTextActive
-                                ]}>
+                                <Text style={[styles.zoomText, isActive && styles.zoomTextActive]}>
                                     {preset.label}
                                 </Text>
                             </TouchableOpacity>
@@ -337,85 +319,28 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                 </View>
             )}
 
-            {/* Solid Shutter Bar at the bottom containing all controls */}
+            {/* Solid Bottom Shutter Action Bar */}
             <View style={styles.shutterBar}>
-                {!isScanning ? (
-                    <View style={styles.bottomControlsRow}>
-                        {/* Flashlight/Torch Toggle Button */}
-                        <TouchableOpacity 
-                            style={styles.sideButton} 
-                            onPress={() => setTorchEnabled(!torchEnabled)}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons 
-                                name={torchEnabled ? "flash" : "flash-off"} 
-                                size={24} 
-                                color={torchEnabled ? "#FFCC00" : "white"} 
-                            />
-                        </TouchableOpacity>
+                <View style={styles.bottomControlsRow}>
+                    <TouchableOpacity style={styles.sideButton} onPress={() => setTorchEnabled(!torchEnabled)}>
+                        <Ionicons name={torchEnabled ? "flash" : "flash-off"} size={24} color={torchEnabled ? "#FFCC00" : "white"} />
+                    </TouchableOpacity>
 
-                        {/* Capture Button (Outer Ring + Solid Circle) */}
-                        <TouchableOpacity 
-                            style={styles.captureButtonOuter} 
-                            onPress={takePicture} 
-                            disabled={!isReady}
-                            activeOpacity={0.8}
-                        >
+                    {!isScanning ? (
+                        <TouchableOpacity style={styles.captureButtonOuter} onPress={takePicture} disabled={!isReady} activeOpacity={0.8}>
                             <View style={styles.captureButtonInner} />
                         </TouchableOpacity>
-
-                        {/* Scan Barcode Toggle Button */}
-                        <TouchableOpacity 
-                            style={styles.sideButton} 
-                            onPress={onToggleBarcodeScan}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons 
-                                name="barcode-outline" 
-                                size={24} 
-                                color="white" 
-                            />
-                        </TouchableOpacity>
-                    </View>
-                ) : (
-                    <View style={styles.bottomControlsRow}>
-                        {/* Flashlight/Torch Toggle Button */}
-                        <TouchableOpacity 
-                            style={styles.sideButton} 
-                            onPress={() => setTorchEnabled(!torchEnabled)}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons 
-                                name={torchEnabled ? "flash" : "flash-off"} 
-                                size={24} 
-                                color={torchEnabled ? "#FFCC00" : "white"} 
-                            />
-                        </TouchableOpacity>
-
-                        {/* Cancel Scan Button */}
-                        <TouchableOpacity 
-                            style={styles.cancelScanButton} 
-                            onPress={onToggleBarcodeScan}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons 
-                                name="close-circle" 
-                                size={20} 
-                                color="white" 
-                            />
+                    ) : (
+                        <TouchableOpacity style={styles.cancelScanButton} onPress={onToggleBarcodeScan} activeOpacity={0.7}>
+                            <Ionicons name="close-circle" size={20} color="white" />
                             <Text style={styles.cancelScanText}>Cancel</Text>
                         </TouchableOpacity>
+                    )}
 
-                        {/* Scanner Mode Indicator */}
-                        <View style={styles.sideButtonDisabled}>
-                            <Ionicons 
-                                name={scannerMode === 'qr' ? "qr-code-outline" : "barcode-outline"} 
-                                size={24} 
-                                color="rgba(255, 255, 255, 0.4)" 
-                            />
-                        </View>
-                    </View>
-                )}
+                    <TouchableOpacity style={isScanning ? styles.sideButtonDisabled : styles.sideButton} onPress={onToggleBarcodeScan} disabled={isScanning}>
+                        <Ionicons name="barcode-outline" size={24} color={isScanning ? "rgba(255,255,255,0.4)" : "white"} />
+                    </TouchableOpacity>
+                </View>
             </View>
         </View>
     );
@@ -427,11 +352,22 @@ const styles = StyleSheet.create({
         backgroundColor: '#000000',
         width: '100%',
         height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     message: {
         textAlign: 'center',
-        paddingBottom: 10,
+        paddingHorizontal: 30,
         color: '#ffffff',
+        fontSize: 15,
+        lineHeight: 22,
+        marginTop: 10,
+    },
+    cameraContainer: {
+        flex: 1,
+        width: '100%',
+        backgroundColor: 'black',
+        position: 'relative',
     },
     camera: {
         ...StyleSheet.absoluteFillObject,
@@ -445,6 +381,13 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
         paddingBottom: 10,
+    },
+    bottomControlsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-around',
+        width: '100%',
+        paddingHorizontal: 30,
     },
     captureButtonOuter: {
         width: 76,
@@ -470,59 +413,39 @@ const styles = StyleSheet.create({
         paddingHorizontal: 22,
         borderRadius: 22,
         gap: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 3,
     },
     cancelScanText: {
         color: '#FFFFFF',
         fontSize: 14,
         fontWeight: 'bold',
     },
-    scannerOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'transparent',
-    },
-    scannerText: {
-        color: 'white',
-        fontSize: 16,
-        marginBottom: 20,
-        backgroundColor: 'rgba(0,0,0,0.65)',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        borderRadius: 26,
-        fontWeight: '600',
-        overflow: 'hidden',
-    },
-    scannerFrame: {
-        width: 240,
-        height: 240,
-        borderWidth: 2,
-        borderColor: '#00FF00',
-        backgroundColor: 'transparent',
+    sideButton: {
+        width: 48,
+        height: 48,
         borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    sideButtonDisabled: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     permissionButton: {
         backgroundColor: '#6366f1',
-        padding: 15,
-        borderRadius: 26,
+        paddingVertical: 12,
+        paddingHorizontal: 28,
+        borderRadius: 22,
         marginTop: 20,
-        marginHorizontal: 40,
     },
     permissionButtonText: {
         color: 'white',
         fontWeight: 'bold',
-        textAlign: 'center',
-        fontSize: 16,
-    },
-    cameraContainer: {
-        flex: 1,
-        backgroundColor: 'black',
-        position: 'relative',
+        fontSize: 15,
     },
     focusRing: {
         position: 'absolute',
@@ -540,28 +463,30 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         backgroundColor: 'rgba(0, 255, 0, 0.03)',
     },
-    bottomControlsRow: {
-        flexDirection: 'row',
+    scannerOverlay: {
+        ...StyleSheet.absoluteFillObject,
         alignItems: 'center',
-        justifyContent: 'space-around',
-        width: '100%',
-        paddingHorizontal: 30,
-    },
-    sideButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
         justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: 'transparent',
     },
-    sideButtonDisabled: {
-        width: 48,
-        height: 48,
+    scannerText: {
+        color: 'white',
+        fontSize: 15,
+        marginBottom: 20,
+        backgroundColor: 'rgba(0,0,0,0.65)',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 20,
+        fontWeight: '600',
+        overflow: 'hidden',
+    },
+    scannerFrame: {
+        width: 240,
+        height: 240,
+        borderWidth: 2,
+        borderColor: '#00FF00',
+        backgroundColor: 'transparent',
         borderRadius: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     barcodeScannerFrame: {
         width: 300,
@@ -582,11 +507,6 @@ const styles = StyleSheet.create({
         gap: 8,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.12)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 5,
-        elevation: 6,
         zIndex: 50,
     },
     zoomPill: {
@@ -595,15 +515,9 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'transparent',
     },
     zoomPillActive: {
         backgroundColor: '#FFFFFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        elevation: 3,
     },
     zoomText: {
         color: 'rgba(255, 255, 255, 0.85)',
@@ -612,6 +526,5 @@ const styles = StyleSheet.create({
     },
     zoomTextActive: {
         color: '#000000',
-        fontWeight: 'bold',
     }
 });
