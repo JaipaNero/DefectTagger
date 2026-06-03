@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Linking, ActivityIndicator, Pressable, Animated, AppState } from 'react-native';
-import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCodeScanner, useCameraFormat } from 'react-native-vision-camera';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
@@ -52,10 +52,17 @@ export function useCameraPermissions() {
  * querying getAvailableCameraDevices in a robust retry loop.
  */
 export function useCameraDeviceFallback(appState, permissionStatus) {
-    const hookDevice = useCameraDevice('back');
+    // Query physical wide-angle camera specifically (avoids logical lens switching timeout/freeze on S24 Ultra)
+    const hookDevice = useCameraDevice('back', {
+        physicalDevices: ['wide-angle-camera']
+    });
     const [fallbackDevice, setFallbackDevice] = useState(null);
 
     useEffect(() => {
+        if (permissionStatus !== 'granted') {
+            return;
+        }
+
         if (hookDevice) {
             setFallbackDevice(hookDevice);
             return;
@@ -71,7 +78,27 @@ export function useCameraDeviceFallback(appState, permissionStatus) {
             try {
                 console.log(`useCameraDeviceFallback: Retrying hardware selection (attempt ${attempt + 1}/${maxAttempts})...`);
                 const availableDevices = await Camera.getAvailableCameraDevices();
-                const backDevice = availableDevices.find(d => d.position === 'back');
+                
+                // 1. Prioritize a single physical wide-angle camera
+                let backDevice = availableDevices.find(d => 
+                    d.position === 'back' && 
+                    d.physicalDevices.length === 1 && 
+                    d.physicalDevices[0] === 'wide-angle-camera'
+                );
+
+                // 2. Fallback to any camera containing wide-angle physical lens
+                if (!backDevice) {
+                    backDevice = availableDevices.find(d => 
+                        d.position === 'back' && 
+                        d.physicalDevices.includes('wide-angle-camera')
+                    );
+                }
+
+                // 3. Last fallback to generic back camera
+                if (!backDevice) {
+                    backDevice = availableDevices.find(d => d.position === 'back');
+                }
+
                 if (backDevice) {
                     console.log("useCameraDeviceFallback: Successfully established back device via manual query!");
                     if (isMounted) setFallbackDevice(backDevice);
@@ -107,6 +134,13 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
     const { permissionStatus, requestPermission } = useCameraPermissions();
     const [appState, setAppState] = useState(AppState.currentState);
     const device = useCameraDeviceFallback(appState, permissionStatus);
+    
+    // Proactively limit format resolutions to standard 1080p to prevent S24 Ultra memory allocation freezes
+    const format = useCameraFormat(device, [
+        { videoResolution: { width: 1920, height: 1080 } },
+        { photoResolution: { width: 1920, height: 1080 } },
+        { fps: 30 }
+    ]);
     
     const cameraRef = useRef(null);
     const [isReady, setIsReady] = useState(false);
@@ -262,6 +296,7 @@ export default function CameraScreen({ onCapture, onBarcodeScanned, isScanning =
                     photo={true}
                     torch={torchEnabled ? 'on' : 'off'}
                     zoom={zoom}
+                    format={format}
                     codeScanner={isScanning ? codeScanner : undefined}
                 />
                 
