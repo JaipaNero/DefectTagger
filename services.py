@@ -4,6 +4,7 @@ import json
 import logging
 import platform
 import re
+import os
 from pathlib import Path
 from datetime import datetime
 import filetype
@@ -124,7 +125,6 @@ def validate_mime_type(content: bytes, filename: str = "") -> str:
     
     return ext
 
-import os
 import threading
 
 # SEC-08: Cross-platform file lock (replaces Unix-only fcntl)

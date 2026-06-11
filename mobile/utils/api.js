@@ -162,37 +162,7 @@ export const uploadEvidence = async (imageUri, metadata, ipAddress, skipQueue = 
 // The SQLite database (database.js) is now the single source of truth
 // for all offline queuing. See useSyncStore.js for queue management.
 
-export const processQueue = async (ipAddress) => {
-    if (!ipAddress) return { successCount: 0, failCount: 0 };
 
-    const queue = db.getQueueItems();
-    if (queue.length === 0) return { successCount: 0, failCount: 0 };
-
-    let successCount = 0;
-    let failCount = 0;
-
-    const delay = ms => new Promise(res => setTimeout(res, ms));
-
-    for (let i = 0; i < queue.length; i++) {
-        const item = queue[i];
-        console.log(`SyncService: Processing queued item ${item.id}`);
-        const meta = typeof item.metadata === 'string' ? JSON.parse(item.metadata) : item.metadata;
-        const result = await uploadEvidence(item.image_uri, meta, ipAddress, true);
-
-        if (result.success) {
-            successCount++;
-            db.removeFromQueue(item.id);
-            console.log(`SyncService: Succeeded queued item ${item.id}`);
-        } else {
-            failCount++;
-            console.error(`SyncService: Failed queued item ${item.id}: ${result.error}`);
-        }
-
-        await delay(500);
-    }
-
-    return { successCount, failCount };
-};
 
 
 
@@ -231,7 +201,7 @@ export const discoverServer = async (onProgress) => {
             for (let j = 0; j < batchSize && (i + j) <= total; j++) {
                 const targetIp = `${subnet}.${i + j}`;
                 // Slightly longer timeout (1.5s) for legacy Windows discovery stability
-                const check = new Promise(async (resolve) => {
+                const check = (async () => {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 1500);
                     try {
@@ -241,14 +211,15 @@ export const discoverServer = async (onProgress) => {
                         });
                         if (res.ok) {
                             const data = await res.json();
-                            resolve({ ip: targetIp, name: data.computer_name || targetIp });
-                        } else resolve(null);
+                            return { ip: targetIp, name: data.computer_name || targetIp };
+                        }
+                        return null;
                     } catch (e) {
-                        resolve(null);
+                        return null;
                     } finally {
                         clearTimeout(timeoutId);
                     }
-                });
+                })();
                 batch.push(check);
             }
 

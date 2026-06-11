@@ -113,17 +113,47 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
 
 # Pairing Requests Store
 # Key: request_id, Value: { "status": "pending"|"approved"|"denied", "ts": datetime }
-PAIRING_REQUESTS = {}
 MAX_PAIRING_REQUESTS = 50       # SEC-06: Hard cap on concurrent requests
 PAIRING_TTL_SECONDS = 300       # SEC-06: 5 minute expiry
+_pairing_lock = threading.Lock()
+_pairing_store = {}
+
+class _PairingStoreProxy:
+    """Dict-like proxy with thread-safe access to the pairing store."""
+    def __contains__(self, key):
+        with _pairing_lock:
+            return key in _pairing_store
+    def __getitem__(self, key):
+        with _pairing_lock:
+            return dict(_pairing_store[key])  # Return a copy
+    def __setitem__(self, key, value):
+        with _pairing_lock:
+            _pairing_store[key] = value
+    def get(self, key, default=None):
+        with _pairing_lock:
+            v = _pairing_store.get(key)
+            return dict(v) if v is not None else default
+    def __len__(self):
+        with _pairing_lock:
+            return len(_pairing_store)
+    def items(self):
+        with _pairing_lock:
+            return [(k, dict(v)) for k, v in _pairing_store.items()]
+    def update_status(self, key, status):
+        with _pairing_lock:
+            if key in _pairing_store:
+                _pairing_store[key]["status"] = status
+
+PAIRING_REQUESTS = _PairingStoreProxy()
 
 def cleanup_pairing_requests():
     """SEC-06: Evicts expired pairing requests and enforces max-size."""
     now = datetime.now()
-    expired = [k for k, v in PAIRING_REQUESTS.items()
-               if (now - v["ts"]).total_seconds() > PAIRING_TTL_SECONDS]
-    for k in expired:
-        del PAIRING_REQUESTS[k]
+    with _pairing_lock:
+        expired = [k for k, v in _pairing_store.items()
+                   if (now - v["ts"]).total_seconds() > PAIRING_TTL_SECONDS]
+        for k in expired:
+            del _pairing_store[k]
 
 import threading
 import queue
@@ -160,51 +190,63 @@ async def lifespan(app: FastAPI):
     if udp_service:
         udp_service.stop()
 
-# SEC-10: Simple Rate Limiter
+# SEC-10: Thread-safe Rate Limiter with bounded memory
 class RateLimiter:
-    def __init__(self, requests: int, window: int):
+    def __init__(self, requests: int, window: int, max_clients: int = 10000):
         self.requests = requests
         self.window = window
+        self.max_clients = max_clients
+        self._lock = threading.Lock()
         self.clients = {}
 
     def is_allowed(self, client_ip: str) -> bool:
         now = time.time()
-        if client_ip not in self.clients:
-            self.clients[client_ip] = [now]
-            return True
-        
-        # Remove expired timestamps
-        self.clients[client_ip] = [t for t in self.clients[client_ip] if now - t < self.window]
-        
-        if len(self.clients[client_ip]) < self.requests:
-            self.clients[client_ip].append(now)
-            return True
-        return False
+        with self._lock:
+            if client_ip not in self.clients:
+                # Evict oldest entry if at capacity
+                if len(self.clients) >= self.max_clients:
+                    oldest_ip = min(self.clients, key=lambda k: self.clients[k][-1] if self.clients[k] else 0)
+                    del self.clients[oldest_ip]
+                self.clients[client_ip] = [now]
+                return True
+            
+            # Remove expired timestamps
+            self.clients[client_ip] = [t for t in self.clients[client_ip] if now - t < self.window]
+            
+            if len(self.clients[client_ip]) < self.requests:
+                self.clients[client_ip].append(now)
+                return True
+            return False
 
 upload_limiter = RateLimiter(requests=10, window=60) # 10 uploads/min
 auth_limiter = RateLimiter(requests=5, window=60)   # 5 auth attempts/min
 
 async def limit_auth(request: Request):
-    client_ip = request.client.host
+    client_ip = (request.client.host if request.client else "unknown")
     if not auth_limiter.is_allowed(client_ip):
          logger.warning(f"Rate Limit exceeded for handshake: {client_ip}")
          raise HTTPException(status_code=429, detail="Too many attempts. Please wait.")
 
 async def limit_upload(request: Request):
-    client_ip = request.client.host
+    client_ip = (request.client.host if request.client else "unknown")
     if not upload_limiter.is_allowed(client_ip):
          logger.warning(f"Rate Limit exceeded for upload: {client_ip}")
          raise HTTPException(status_code=429, detail="Upload limit reached. Please wait.")
 
 app = FastAPI(lifespan=lifespan, title="Local Sync Hub Secure")
 
-# SEC-11: Formalize CORS
+# SEC-11: Formalize CORS — restrict to known origins
+import os as _cors_os
+_ALLOWED_ORIGINS = _cors_os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:8081"
+).split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For React Native local dev/prod simplicity
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 
@@ -264,10 +306,10 @@ async def pair_request(request: PairingRequest):
     # Show popup in a separate thread to not block the API
     def ask_user():
         if show_approval_popup(request.device_name, request.device_id):
-            PAIRING_REQUESTS[request_id]["status"] = "approved"
+            PAIRING_REQUESTS.update_status(request_id, "approved")
             logger.info(f"Pairing APPROVED for {request.device_name}")
         else:
-            PAIRING_REQUESTS[request_id]["status"] = "denied"
+            PAIRING_REQUESTS.update_status(request_id, "denied")
             logger.info(f"Pairing DENIED for {request.device_name}")
 
     threading.Thread(target=ask_user, daemon=True).start()
@@ -276,13 +318,24 @@ async def pair_request(request: PairingRequest):
 
 @app.get("/auth/pair-status")
 async def pair_status(request_id: str):
-    """Polls the status of a pairing request."""
-    if request_id not in PAIRING_REQUESTS:
+    """Polls the status of a pairing request. Returns a scoped, short-lived token on approval."""
+    req = PAIRING_REQUESTS.get(request_id)
+    if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     
-    req = PAIRING_REQUESTS[request_id]
     if req["status"] == "approved":
-        return {"status": "approved", "setup_token": SETUP_TOKEN}
+        # SEC-12: Return a scoped pairing token instead of the raw SETUP_TOKEN
+        scoped_token = jwt.encode(
+            {
+                "type": "pairing",
+                "request_id": request_id,
+                "device_id": req.get("device_id", ""),
+                "exp": datetime.now(ZoneInfo("Europe/Amsterdam")) + timedelta(minutes=5),
+            },
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
+        return {"status": "approved", "setup_token": scoped_token}
     elif req["status"] == "denied":
         raise HTTPException(status_code=403, detail="Pairing request denied")
     
@@ -320,7 +373,7 @@ async def set_pc_clipboard(
         return {"status": "success", "message": "Copied to PC clipboard"}
     except Exception as e:
         logger.error(f"Failed to copy to clipboard: {e}")
-        raise HTTPException(status_code=500, detail=f"Clipboard operation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Clipboard operation failed")
 
 @app.post("/upload-evidence", dependencies=[Depends(limit_upload)])
 async def upload_evidence(

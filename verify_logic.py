@@ -3,8 +3,13 @@ import io
 import os
 from pathlib import Path
 from datetime import datetime
-from services import save_evidence_file, UPLOADS_DIR
+import services
+from services import save_evidence_file
 from schemas import EvidenceMetadata
+
+# Safety override: mock the storage path to a local test folder
+TEST_UPLOADS_DIR = Path("test_uploads")
+services.get_storage_path = lambda: TEST_UPLOADS_DIR
 
 # Mock UploadFile class since we aren't running a full server request
 class MockUploadFile:
@@ -13,8 +18,8 @@ class MockUploadFile:
         self.file = io.BytesIO(content)
 
 def cleanup():
-    if UPLOADS_DIR.exists():
-        shutil.rmtree(UPLOADS_DIR)
+    if TEST_UPLOADS_DIR.exists():
+        shutil.rmtree(TEST_UPLOADS_DIR)
     print("Cleaned up uploads directory.")
 
 def test_duplicate_handling():
@@ -36,16 +41,17 @@ def test_duplicate_handling():
     
     # 1. Upload first file
     file1 = MockUploadFile(filename, content)
-    path1 = save_evidence_file(file1, metadata)
+    path1 = save_evidence_file(file1.file, file1.filename, metadata)
     print(f"Saved file 1: {path1}")
     
     # 2. Upload second file (same name)
     file2 = MockUploadFile(filename, content)
-    path2 = save_evidence_file(file2, metadata)
+    path2 = save_evidence_file(file2.file, file2.filename, metadata)
     print(f"Saved file 2: {path2}")
     
     # Verify
-    expected_dir = UPLOADS_DIR / "2023-10-27" / tech_id
+    uploads_dir = services.get_storage_path()
+    expected_dir = (uploads_dir / "2023-10-27" / tech_id).resolve()
     expected_path1 = expected_dir / f"liquid_damage_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
     expected_path2 = expected_dir / f"liquid_damage_{timestamp.strftime('%Y%m%d_%H%M%S')}_v2.jpg"
     

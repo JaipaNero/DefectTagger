@@ -92,19 +92,27 @@ def generate_self_signed_certs():
         critical=False,
     ).sign(ca_key, hashes.SHA256())
 
-    # Write files
-    ca_key_path.write_bytes(ca_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    ))
+    # Write files with restricted permissions
+    def write_private_key(filepath, key):
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        fd = os.open(str(filepath), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, pem)
+        finally:
+            os.close(fd)
+        try:
+            filepath.chmod(0o600)
+        except Exception:
+            pass
+
+    write_private_key(ca_key_path, ca_key)
     ca_cert_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
     
-    server_key_path.write_bytes(server_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    ))
+    write_private_key(server_key_path, server_key)
     server_cert_path.write_bytes(server_cert.public_bytes(serialization.Encoding.PEM))
 
     print(f"Certs generated for IP: {local_ip}")

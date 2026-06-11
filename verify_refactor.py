@@ -5,15 +5,24 @@ Tests: Handshake -> JWT Auth -> Raw Upload -> MIME Validation -> Audit Log.
 import os, json
 from main import app, SETUP_TOKEN
 from fastapi.testclient import TestClient
-from services import UPLOADS_DIR
+from pathlib import Path
+import services
+from services import get_storage_path
+
+# Mock the storage path to a local test folder
+TEST_UPLOADS_DIR = Path("test_uploads")
+services.get_storage_path = lambda: TEST_UPLOADS_DIR
 
 client = TestClient(app)
 
 def test_full_flow():
     tech_id = "test_tech_01"
     
-    # 1. Handshake: Exchange setup token for JWT
-    resp = client.post(f"/auth/handshake?token={SETUP_TOKEN}&technician_id={tech_id}")
+    # 1. Handshake: Exchange setup token for JWT via request body
+    resp = client.post(
+        "/auth/handshake",
+        json={"token": SETUP_TOKEN, "technician_id": tech_id}
+    )
     assert resp.status_code == 200, f"Handshake failed: {resp.text}"
     
     data = resp.json()
@@ -55,11 +64,13 @@ def test_full_flow():
     print(resp.json())
     
     # 3. Verify Audit Log
-    manifest_path = UPLOADS_DIR / "manifest.json"
+    uploads_dir = services.get_storage_path()
+    manifest_path = uploads_dir / "manifest.json"
     assert manifest_path.exists(), f"Manifest not found at {manifest_path}"
     print(f"TEST: Manifest exists at {manifest_path}.")
 
 if __name__ == "__main__":
+    import shutil
     try:
         test_full_flow()
         print("VERIFICATION PASSED")
@@ -67,3 +78,7 @@ if __name__ == "__main__":
         print(f"VERIFICATION FAILED: {e}")
     except Exception as e:
         print(f"VERIFICATION FAILED:\n{e}")
+    finally:
+        if TEST_UPLOADS_DIR.exists():
+            shutil.rmtree(TEST_UPLOADS_DIR)
+            print("Cleaned up test uploads directory.")

@@ -61,11 +61,13 @@ export const useSyncStore = () => {
 
     const performUpload = async (uri, metadata) => {
         setStatus('uploading');
+        let outcome = 'error';
         try {
             const result = await apiUpload(uri, metadata, ipAddress, true);
             if (result.success) {
                 setStatus('success');
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                outcome = 'success';
             } else {
                 // Persistent Queue on failure[cite: 403]
                 db.addToQueue(Date.now().toString(), uri, metadata);
@@ -79,6 +81,7 @@ export const useSyncStore = () => {
         } finally {
             setTimeout(() => setStatus('idle'), 3000);
         }
+        return outcome;
     };
 
     const processFullQueue = async () => {
@@ -89,6 +92,8 @@ export const useSyncStore = () => {
         setMessage(`Syncing ${items.length} items...`);
 
         let successCount = 0;
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
         for (const item of items) {
             const meta = JSON.parse(item.metadata);
             const res = await apiUpload(item.image_uri, meta, ipAddress, true);
@@ -96,6 +101,7 @@ export const useSyncStore = () => {
                 db.removeFromQueue(item.id);
                 successCount++;
             }
+            await delay(500);
         }
 
         refreshQueue();

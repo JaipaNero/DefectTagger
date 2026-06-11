@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, Text, View, Modal, TextInput, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import ScaleButton from './components/ScaleButton';
-import CameraView from './components/CameraView';
+// SafeCameraView replaces CameraView — implements deferred mount + HAL teardown
+// to prevent binder deadlocks on Samsung S24/S26 Ultra.
+// Aliased to CameraView to keep all JSX references stable.
+import CameraView from './components/SafeCameraView';
 import AnnotationCanvas from './components/AnnotationCanvas';
 import GlassModal from './components/GlassModal';
 import LiveHeader from './components/LiveHeader';
@@ -36,6 +39,11 @@ export default function App() {
     const [foundServers, setFoundServers] = useState([]);
     const [isServerPickerVisible, setServerPickerVisible] = useState(false);
     const [isTroubleshooterVisible, setTroubleshooterVisible] = useState(false);
+    const cleanupRef = useRef(null);
+
+    useEffect(() => {
+        return () => cleanupRef.current?.();
+    }, []);
 
     const showAlert = (title, message, type = 'info', actions = []) => {
         setModalConfig({ title, message, type, actions });
@@ -118,7 +126,12 @@ export default function App() {
             }
         }, 2000);
 
-        setTimeout(() => clearInterval(pollInterval), 60000);
+        const pollTimeout = setTimeout(() => clearInterval(pollInterval), 60000);
+
+        cleanupRef.current = () => {
+            clearInterval(pollInterval);
+            clearTimeout(pollTimeout);
+        };
     };
 
     const handleCapture = (uri) => {
@@ -152,8 +165,8 @@ export default function App() {
         };
         setSessionHistory(prev => [newItem, ...prev]);
 
-        await performUpload(uri, finalMetadata);
-        setSessionHistory(prev => prev.map(item => item.id === newItem.id ? { ...item, status: status === 'error' ? 'error' : 'success' } : item));
+        const uploadResult = await performUpload(uri, finalMetadata);
+        setSessionHistory(prev => prev.map(item => item.id === newItem.id ? { ...item, status: uploadResult === 'error' ? 'error' : 'success' } : item));
     };
 
     const handleCancelAnnotation = () => {
@@ -170,7 +183,7 @@ export default function App() {
         if (view !== 'scanner') return;
         
         // Haptic feedback for scan
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         
         setView('camera'); 
         
@@ -208,7 +221,7 @@ export default function App() {
         if (view !== 'barcode') return;
         
         // Haptic feedback for scan
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         
         setView('camera'); 
         
